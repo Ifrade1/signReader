@@ -13,7 +13,7 @@ from __future__ import with_statement
 import Leap, sys, thread, time, os, datetime, math, inspect, msvcrt, getpass #IF
 src_dir = os.path.dirname(inspect.getfile(inspect.currentframe()))
 arch_dir = '../lib/x64' if sys.maxsize > 2**32 else '../lib/x86'
-sys.path.insert(0, os.path.abspath(os.path.join(src_dir, arch_dir))) #IF
+sys.path.insert(0, os.path.abspath(os.path.join(src_dir, arch_dir))) 
 import numpy as np
 import numpy.linalg 
 from Leap import CircleGesture, KeyTapGesture, ScreenTapGesture, SwipeGesture
@@ -527,10 +527,9 @@ def getCoordList(frame):
  #IF
 def getFrameRate(frame): #IF: this is the function to spit out the frame rate
             fps = frame.current_frames_per_second
-            timestamp = frame.timestamp
-            print "At time " timestamp " frame rate is " fps
-            return fps
-                #IF
+            ts = time.time()
+            timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H-%M-%S')
+            print "At time " timeStamp " frame rate is " fps #IF
 class SampleListener(Leap.Listener):
     finger_names = ['T', 'I', 'M', 'R', 'P']
     bone_names = ['Metacarpal', 'Proximal', 'Intermediate', 'Distal  ']
