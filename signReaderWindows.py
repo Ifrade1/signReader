@@ -8,6 +8,10 @@
 #
 #   written by Sarah Almeda at The College of New Jersey 10/2018
 #
+#   This code has been modified to run on a windows 64 computer
+#   You can find the mac version of the code here:
+#   https://github.com/sarah-almeda/signReader
+#
 ################################################################################
 from __future__ import with_statement
 import Leap, sys, thread, time, os, datetime, math, inspect, msvcrt, getpass #IF
