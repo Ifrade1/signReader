@@ -753,8 +753,8 @@ def main():
             # 2         -> prints finger lengths, statuses, and distances from palm
             # 3         -> prints finger coordinates and length
             # 4         -> prints finger angles between each other and palm
+            # 5         ->print out frame rate
             # spacebar  -> manually sends frame, checks for a sign
-
 
             if (ch == "2" and recording): #PRINT FINGER STATUSES
                 
