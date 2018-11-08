@@ -6,121 +6,190 @@
 # between Leap Motion and you, your company or other organization.             #
 ################################################################################
 #
+#   written by Sarah Almeda at The College of New Jersey 9/2018
+
 #   written by Sarah Almeda at The College of New Jersey 10/2018
 #
 #   This code has been modified to run on a windows 64 computer
 #   You can find the mac version of the code here:
 #   https://github.com/sarah-almeda/signReader
 #
+#
 ################################################################################
 from __future__ import with_statement
-import Leap, sys, thread, time, os, datetime, math, inspect, msvcrt, getpass #IF
-src_dir = os.path.dirname(inspect.getfile(inspect.currentframe()))
-arch_dir = '../lib/x64' if sys.maxsize > 2**32 else '../lib/x86'
-sys.path.insert(0, os.path.abspath(os.path.join(src_dir, arch_dir))) 
+from datetime import timedelta 
+import Leap, sys, thread, time,  os, datetime, math 
+import getpass, inspect #IL
+src_dir = os.path.dirname(inspect.getfile(inspect.currentframe())) #IL
+arch_dir = '../lib/x64' if sys.maxsize > 2**32 else '../lib/x86' #IL
+sys.path.insert(0, os.path.abspath(os.path.join(src_dir, arch_dir))) #IL
+#termios, tty,
 import numpy as np
 import numpy.linalg 
 from Leap import CircleGesture, KeyTapGesture, ScreenTapGesture, SwipeGesture
 
 #margin of error used for comparing distances to detect finger status
 thumbExtendedMargin = 70 #if angle between thumb and palm is > this, thumb is extended
+thumbUpMargin = 20 #if angle between thumb and hand is < this, thumb is up
+thumbInMargin = 10 #if distance from thumb tip to palm is < this, thumb is in
 extendedMargin = 9
+rollDifference = 25 #if the difference between the roll and 90 is < this, the palm is sideways
 thumbStraightMargin = 30
-Vmargin = 30
+Vmargin = 30 #IL: is this margin, if letter = V?
 touchingMargin = 10
-tipTouchingMargin = 30
-straightOutMargin = 30
-curledMargin = 3
-downMargin = 10
-maxFrames = 10      # maximum number of frames to store
+isTouchingMargin = 30
+straightOutMargin = 10
+curledMargin = 10
+downMargin = 0
+maxFrames = 120      # maximum number of frames to store
 maxDistance = 2 # max distance between steady frames
 
-def getSign(fingers, hand, anglesToPalm, fingerAngles, thumbFingersTouching):
+def getSign(fingers, hand, anglesToPalm, fingerAngles, thumbMiddleTouching):
     angleToPalmOf = dict(anglesToPalm) #make a dictionary with angles from fingers to palm
     angleBetween = dict(fingerAngles) #Returns dict with angles in this order: ['TI', 'IM', 'MR', 'RP']
-    statusOf = dict(fingers) #make a dictionary with finger initials as keys
-    if not (statusOf):
+    statusOf = dict(fingers) #make a dictionary with finger initials as keys or 'palm' as key
+
+#    _______
+#---'   ____)____   [T] = THUMB
+#          ______)  [I] = INDEX FINGER
+#          _______) [M] = MIDDLE 
+#        _______)   [R] = RING FINGER
+#---.__________)    [P] = PINKY
+
+if not (statusOf): #IL: Leap cannot find the hand
         print "I can't see your full hand!"
         return
-    if (statusOf['P'] == 'curled' and statusOf['M'] != 'extended'): #PINKY IS CURLED.
-            print "You signed an E"
-            return
-    if (statusOf['P'] == 'bent' or statusOf['P'] == 'straightOut'): #PINKY IS BENT. D O C
-        if (statusOf['R'] == 'extended' and statusOf['T'] != 'extended'):
-            print "You signed a W"
+
+    ##--------- SIGNS WITH ABNORMAL PALM ORIENTATION ------------###
+    if (statusOf['palm'] == 'SIDEWAYS' and statusOf['T'] is 'in' and statusOf['P'] is not 'up'): #G or H
+        if (statusOf['M'] == 'up' or statusOf['M'] == 'out'): #IL: if middle finger is up or sticking out
+            print "You signed an H"
             return
         else:
-            if (statusOf['I'] == 'extended'):
-                if (statusOf['T'] == 'extended'):
-                    print "You signed an L"
-                    return
-                if (statusOf['T'] == 'down'):
-                    print "You signed a D"
-                    return
-            elif (statusOf['M'] != 'extended'):
-                if (thumbFingersTouching):
-                    print "You signed an O" 
-                else:
-                    print "You signed a C" 
-        return
-    elif(statusOf['P'] == 'down' or statusOf['P'] == 'bent'): #PINKY IS DOWN OR BENT
+            print "You signed a G"
+            return
+    if (statusOf['palm'] == 'DOWN' and statusOf['P'] is not 'up'): #Q or P
+        if (statusOf['M'] == 'up'or statusOf['M'] == 'out'): #IL: if middle finger is up or sticking out
+            print "You signed a P"
+            return
+        else:
+            print "You signed a Q"
+            return
+
+    ##--------- SIGNS WITH NORMAL PALM ORIENTATION ------------###
+    if (statusOf['P'] == 'curled'): #if pinky is curled
+        if statusOf['T'] == 'in' and statusOf['I'] is not 'up': #pinky is curled and thumb is in
+            print "You signed an E" 
+            return
+        #if it's not an E, it was probably misread as curled
+        for key in statusOf:
+            if (statusOf[key] == 'curled'):
+                statusOf[key] = 'up'
+    
+    if(statusOf['P'] == 'down'): #PINKY IS DOWN 
         #CHECK MIDDLE FINGER STATUS
-        if (statusOf['M'] == 'down'):
-            if (statusOf['I'] == 'extended' and statusOf['T'] == 'extended'):
+        if (statusOf['M'] == 'down'): #IL:Pointing down?
+            if (statusOf['I'] == 'up' and statusOf['T'] == 'up'):
                 print "You signed an L"
                 return
-            elif (statusOf['I'] == 'down' or statusOf['I'] == 'curled'): #all fingers down
-                if (statusOf['T'] == 'down'):
-                    print "You signed an S" #or  a T
+            elif (statusOf['I'] == 'down' or statusOf['I'] == 'curled'): #all fingers down, curled
+                if (statusOf['T'] == 'up' or statusOf['T'] == 'out'): #fingers curled, thumb sticking out
+                    print "You signed an A" #or  a T
                     return
                 else:
-                    print "You signed an A"
+                    print "You signed an S"
                     return
-            elif (angleToPalmOf['I'] < 80): #finger is curled
-                print "You signed an X"
+            elif (angleToPalmOf['I'] < 75): #finger is curled
+                if (statusOf['palm'] == 'SIDEWAYS'): #Index finger out & curled, hand pointing to the side
+                    print "You signed a G"
+                    return
+                print "You signed an X" #IL: palm is facing up, index is still curled out, rest of fingers in fist
                 return
             else:
-                print "You signed a D"
+                print "You signed a D" #palm pointed up, Index finger up, all other fingers curled, touching the thumb
                 return
-        elif (statusOf['M'] == 'bent'):
-            print "You signed a K, M, or N. I can't tell yet!"
+        elif (statusOf['M'] == 'bent' or statusOf['M'] is 'out'):
+            if (statusOf['I'] == 'up'):
+                print "You signed a K" #IL:Index finger up, middle pointing out, thumb up in between
+                return
+            if (statusOf['R'] is not 'up'): #IL:humb on pinky, all other fingers curled on top.
+                print "You signed an M"
+            else:
+                print "You signed an N" #IL:thumb resting on top of ring, index and middle resting on thumb
             return
-        elif (statusOf['M'] == 'extended'):
-            if (statusOf['I'] == 'extended' ):
-                if (angleBetween['IM'] > Vmargin):
+        elif (statusOf['M'] == 'up'):
+            if (statusOf['I'] == 'up' ):
+                if (angleBetween['IM'] > Vmargin): #IL: Index and middle finger pointed up and out, in V formation
                     print "You signed a V"
                     return
-                if (angleBetween['IM'] < touchingMargin):
+                if (angleBetween['IM'] < touchingMargin):#IL: Index and middle finger up, touching. 
                     print "You signed a U"
                     return
                 else:
-                    print "You signed an R"
+                    print "You signed an R"#IL: Middle and Index pointed up, interlocked. thumb resting on ring, pinky should be curled down.
                     return
-            elif(statusOf['R'] != 'extended'):
+            elif(statusOf['R'] != 'up'): #IL: peace symbol, index and middle finger pointed up and out, everything else curled
                 print "Peace among worlds!"
-        return
-    elif(statusOf['P'] == 'extended'): #PINKY IS EXTENDED
-        if (statusOf['R'] == 'extended'): #RING IS EXTENDED
-            if (statusOf['I'] == 'extended'): #INDEX IS EXTENDED
-                     if (statusOf['T'] == 'down' and angleBetween['IM'] <= (touchingMargin+10) ): #THUMB IS DOWN AND FINGERS ARE CLOSE
+                return
+        statusOf['P'] = 'bent'
+    if (statusOf['P'] is 'bent' or statusOf['P'] is 'out'): 
+        if (statusOf['R'] == 'up' and statusOf['M'] == 'up'): #IL: Middle up, Ring up (and out), pinky bent, Index up (and out)
+            print "You signed a W"
+            return
+        else:
+            if (statusOf['I'] == 'up'):
+                if (statusOf['T'] == 'out'):
+                    if (statusOf['M'] == 'up'):
+                        #this person signs U, V, R with their pinky pointed out
+                        if (angleBetween['IM'] > Vmargin):
+                            print "You signed a V" #IL: Index and middle finger pointed up and out, in V formation
+                            return
+                        if (angleBetween['IM'] < touchingMargin):
+                            print "You signed a U" #IL: Index and middle finger up, touching.
+                            return
+                        else:
+                            print "You signed an R"#IL: Middle and Index pointed up, interlocked. thumb resting on ring, pinky should be curled down.
+                            return
+                    if (thumbMiddleTouching):
+                        print "You signed a D" #IL: thumb and middle touching. Index up. pinky and ring curled out. 
+                        return
+                    print "You signed an L"
+                    return
+                elif (statusOf['M'] is 'out' or statusOf['M'] is 'bent'):
+                    print "You signed a K" 
+                    return
+                else:
+                    print "You signed a D" #IL: thumb and middle touching. Index up. pinky and ring curled out. 
+                    return
+            elif (statusOf['M'] != 'up'):
+                if (thumbMiddleTouching):
+                    print "You signed an O" #IL:thumb and middle touching. all other fingers curled down and out, not touching palm
+                else:
+                    print "You signed a C" #IL: all fingers curled out, thumb and middle NOT touching.
+                return
+        statusOf['P'] = 'up'
+    if(statusOf['P'] == 'up'):
+        if (statusOf['R'] == 'up'): #RING IS EXTENDED
+            if (statusOf['I'] == 'up'): #INDEX IS EXTENDED
+                     if ((statusOf['T'] is not 'out') and (angleBetween['IM'] <= (touchingMargin+10))): #THUMB IS DOWN AND FINGERS ARE CLOSE
                         print "You signed a B"
                         return
                      else:
                         print "That's an open palm. High five!"
                         return
             else: #INDEX IS NOT EXTENDED
-                print "You signed an F"
+                print "You signed an F" #pinky, ring, & middle up and touching. thumb and index touching.
                 return
         else: #RING IS NOT EXTENDED
-            if (statusOf['T'] == 'extended' ): #THUMB EXTENDED
-                if (statusOf['I'] == 'extended'): #INDEX IS EXTENDED
-                    print "I love you too ;)"
+            if (statusOf['T'] == 'out' ): #THUMB EXTENDED
+                if (statusOf['I'] == 'up'): #INDEX IS EXTENDED
+                    print "I love you too ;)" #IL: pinky up, index up, thumb pointed up and out. all others curled against palm
                     return
                 else:
-                    print "You signed a Y"
+                    print "You signed a Y" #IL: pinky out sideways, thumb out
                     return
             else:
-                print "You signed an I"
+                print "You signed an I" #IL: pinky up, ring, middle, index curled against palm, thumb resting on top of them.
                 return
     print "I don't know what you signed!"
 
@@ -134,75 +203,110 @@ def getSign(fingers, hand, anglesToPalm, fingerAngles, thumbFingersTouching):
 def getFingerStatuses(fingers, hand, printRequested):
     
     result = []
-    status = 'unknown'
-    angles = dict(anglesToPalm(fingers, hand, False))
+    status = 'normal'
+    fingerAngles = dict(getFingerAngles(fingers, hand, False))
+    angleToPalm = dict(anglesToPalm(fingers, hand, False))
+    angleToHand = dict(anglesToHand(fingers, hand, False))
+
     
+
+    #GET PALM STATUS
+    roll = (180*(hand.direction.roll)/np.pi)
+    if (abs(abs(roll) - 90) < rollDifference):
+        status = 'SIDEWAYS'
+    if (abs(roll) < rollDifference):
+        status = 'DOWN'
+    result.append(('palm', status))
+
+
+    status = 'unknown'
     for a, f in fingers:
         
         ##GET DATA
         shortLength = f.length
         metacarpalLength = (f.bone(0).length/2) #length of half the metacarpal
         fullLength = shortLength + metacarpalLength #estimated length from center of palm to tip of finger
-
-        tipToPalm = getDistance(f.bone(3).next_joint, hand.palm_position) #distance from finger tip to palm
-        intToPalm = getDistance(f.bone(2).center, hand.palm_position) #distance from finger center to palm
-        proxToPalm = getDistance(f.bone(1).prev_joint, hand.palm_position) #distance from beginning of finger to palm
-        proxToPalm
+        palmCenter = hand.palm_position
+        tipToPalm = abs(f.stabilized_tip_position.distance_to(palmCenter) - f.length) #distance from finger tip to palm
+        nonAbsTipToPalm = f.stabilized_tip_position.distance_to(palmCenter) - f.length
+        tipToKnucks = (f.stabilized_tip_position.distance_to(f.bone(0).next_joint))- f.length #distance from finger tip to knuckles
+        tipToPalmA = getDistance(f.bone(3).next_joint, hand.palm_position) #distance from finger tip to palm
         
         ##DECIDE FINGER STATUS
         #special logic for thumb
         if (a == 'T'):
+            intToPalm = getDistance(f.bone(2).center, hand.palm_position) #distance from finger center to palm
+            proxToPalm = getDistance(f.bone(1).prev_joint, hand.palm_position) #distance from beginning of finger to palm
+        
             thumbHandAngle = (180*((f.direction.angle_to(hand.direction)))/np.pi)
             if (printRequested):
                 print "thumbHandAngle : %f" % thumbHandAngle
-            if (angles[a] > thumbExtendedMargin):
+            if (angleToHand[a] < thumbUpMargin):
                 
-                status = 'extended' #the finger is  extended
+                status = 'up' #the thumb is up
                 
             else:
                 status = 'bent'
-
-                if (thumbHandAngle < thumbStraightMargin):
-                        status = 'straight'
-                elif ((intToPalm-proxToPalm) < downMargin): #if middle of thumb is closer to palm than base of thumb
-                        status = 'down'
-
+                if ((tipToPalm -shortLength) < extendedMargin or abs(angleToPalm[a]- 90) < extendedMargin):
+                        status = 'out'
+                if ((tipToPalm < thumbInMargin) and angleToHand[a] > 20): #if middle of thumb is closer to palm than base of thumb
+                        status = 'in'
 
         #for all fingers except the thumb
         else:
-            #finger to hand
-            fingerHandAngle = (180*((f.direction.angle_to(hand.direction)))/np.pi)
-            #if the tip of the finger is farther than the estimated length by a certain margin,
-            if ((tipToPalm - fullLength) > extendedMargin):
+            if (angleToPalm[a] > angleToHand[a] and (tipToPalmA - fullLength) > extendedMargin):
                 
                 
-                status = 'extended' #the finger must be extended
-                
-                #otherwise, the finger is curled or down (as in a fist)
+                status = 'up' #the finger must be extended
+
             else:
                 #print "tip to palm - short length %f" % (tipToPalm - shortLength)
                 status = 'bent'
-                #if the tip is substantially closer to the palm than the finger center is
-                if ((tipToPalm - intToPalm) < curledMargin):
+                
+              
+                if ((tipToPalmA - intToPalm) > curledMargin and nonAbsTipToPalm > curledMargin):
+                    
                     status = 'curled'
-                if ((tipToPalm - shortLength) < downMargin):
-                    status = 'down'
-                elif ((angles[a] < straightOutMargin) and (fingerHandAngle > 70)):
-                    if (printRequested):
-                        print "fingerHandAngle: %f" % fingerHandAngle
+                if ((tipToPalmA - shortLength) < downMargin):
 
-                #if the finger to palm angle is small and the finger to hand direction is large, then the finger is probably pointing straight out.
-                    status = 'straightOut'
+                    status = 'down'
+                
+
+
+                elif (angleToHand[a] > 50 and angleToHand[a] < 100):
+                    #if the finger to palm angle is small and the finger to hand direction is large, then the finger is probably pointing straight out.
+                    status = 'out'
+                
 
         result.append((a, status))
+    if (printRequested):
+        for a, status in result:
+            print ("%s is %s" % (a, status))
     return result
 
 def isTouching(myCoords, bone1, bone2, printRequested):
+    """
+    returns whether the two coordinates are touching
+    that is, the distance is within the isTouchingMargin
+
+    Parameters
+    ----------
+    myCoords : list of coordinates generated by getCoordList()
+    bone1 : name of one bone, i.e. T_Distal
+    bone2 :  name of other bone
+    printRequested: bool
+        if true, prints debug messages
+
+    Returns
+    -------
+        True if points are in touching distance,
+        False if not.
+    """
     coords = dict(myCoords)
     thisDistance = coords[bone1].distance_to(coords[bone2]);
     if (printRequested):
             print "this Distance: %f" % thisDistance
-    if (thisDistance < tipTouchingMargin):
+    if (thisDistance < isTouchingMargin):
         if (printRequested):
             print "touching"
         return True
@@ -210,6 +314,46 @@ def isTouching(myCoords, bone1, bone2, printRequested):
     if(printRequested):
         print "not touching"
     return False
+
+def proximalAngles (fingers, hand, printRequested):
+    finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
+    angle_names = ['T', 'I', 'M', 'R', 'P']
+    status = 'unknown'
+    first = True;
+    result = []
+    if (printRequested):
+        print "ANGLES FROM EACH FINGER PROXIMAL TO HAND:"
+
+    for a, f in fingers:
+        vectorA = f.bone(1).direction
+        vectorB = hand.direction
+        myAngle = 180*(vectorA.angle_to(vectorB))/np.pi
+        if (printRequested):
+            print "angle %s is %f" % (angle_names[f.type], myAngle)
+        result.append((angle_names[f.type], myAngle))
+    return result;
+
+def anglesToHand(fingers, hand, printRequested):
+    #compares angles of fingers to normal direction of hand (that is, a vector pointing straight up from wrist to fingers)
+    #Returns array with angles in this order:
+    #thumb and hand, index and hand, middle and hand, ring and hand, pinky and hand
+    #thumbProximal and hand, indexProximal and Hand... etc
+    finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
+    angle_names = ['T', 'I', 'M', 'R', 'P']
+    status = 'unknown'
+    first = True;
+    result = []
+    if (printRequested):
+        print "ANGLES FROM EACH FINGER TO HAND:"
+
+    for a, f in fingers:
+        vectorA = f.direction
+        vectorB = hand.direction
+        myAngle = 180*(vectorA.angle_to(vectorB))/np.pi
+        if (printRequested):
+            print "angle %s is %f" % (angle_names[f.type], myAngle)
+        result.append((angle_names[f.type], myAngle))
+    return result;
 
 
 def anglesToPalm(fingers, hand, printRequested):
@@ -232,13 +376,31 @@ def anglesToPalm(fingers, hand, printRequested):
             print "angle %s is %f" % (angle_names[f.type], myAngle)
         result.append((angle_names[f.type], myAngle))
     if (printRequested):
-       print "ANGLE TO DOWN AXIS: %f" % (180*(hand.palm_normal.angle_to(Leap.Vector.down))/np.pi)
+       print "ANGLE FROM TO DOWN AXIS: %f" % (180*(hand.palm_normal.angle_to(Leap.Vector.down))/np.pi)
        print "ROLL: %f" % (180*(hand.direction.roll)/np.pi)
     return result;
     
 def getFingerAngles(fingers,hand, printRequested):
-    #Returns array with angles in this order:
-    #thumb and index, index and middle, middle and ring, ring and pinky
+    """
+    gets angles between each adjacent finger
+    returns an array of tuples with name of angle and its value in degrees
+    Returns array with angles in this order:
+     thumb and index, index and middle, middle and ring, ring and pinky
+
+    Parameters
+    ----------
+    fingers : FingerList
+    hand : hand object
+    printRequested: bool
+        if true, prints debug messages
+
+    Returns
+    -------
+    array of tuples 
+     each tuple (a,d) consists of the name of angle a (['TI', 'IM', 'MR', 'RP']) and its value in degrees d
+
+    """
+    
     finger_names = ['T', 'I', 'M', 'R', 'P']
     angle_names = ['TI', 'IM', 'MR', 'RP']
     status = 'unknown'
@@ -261,73 +423,10 @@ def getFingerAngles(fingers,hand, printRequested):
             result.append((angle_names[f.type-1], myAngle))
 
     anglesToPalm(fingers, hand, printRequested)
+    anglesToHand(fingers, hand, printRequested)
+
     return result;
         
-
-def printFingerStatuses(fingers, hand):
-    
-    status = 'unknown'
-    angles = dict(anglesToPalm(fingers, hand, False))
-    
-    for a, f in fingers:
-        shortLength = f.length
-        metacarpalLength = f.bone(0).length
-       # print "%d short length" % shortLength
-        fullLength = shortLength + (metacarpalLength/2)
-       # print "%d full length" % fullLength
-      #  
-        
-        tipToPalm = getDistance(f.bone(3).next_joint, hand.palm_position) #distance from finger tip to palm
-        print "%d tip to palm " % tipToPalm
-        intToPalm = getDistance(f.bone(2).center, hand.palm_position) #distance from finger center to palm
-       # print "%d int to palm" % intToPalm
-        proxToPalm = getDistance(f.bone(1).center, hand.palm_position)
-       # print "%d proximal distance" % proxToPalm
-        
-        
-        ##DECIDE FINGER STATUS
-        #special logic for thumb
-        if (a == 'T'):
-            thumbHandAngle = (180*((f.direction.angle_to(hand.direction)))/np.pi)
-            print "thumbHandAngle : %f" % thumbHandAngle
-            if (angles[a] > thumbExtendedMargin):
-                
-                status = 'extended' #the finger is  extended
-                
-            else:
-                status = 'bent'
-
-            if (thumbHandAngle < thumbStraightMargin):
-                    status = 'straight'
-            elif ((intToPalm-proxToPalm) < downMargin): #if middle of thumb is closer to palm than base of thumb
-                    status = 'down'
-
-
-        #for all fingers except the thumb
-        else:
-            #finger to hand
-            fingerHandAngle = (180*((f.direction.angle_to(hand.direction)))/np.pi)
-            #if the tip of the finger is farther than the estimated length by a certain margin,
-            if ((tipToPalm - fullLength) > extendedMargin):
-                
-                
-                status = 'extended' #the finger must be extended
-                
-                #otherwise, the finger is curled or down (as in a fist)
-            else:
-                status = 'bent'
-                #if the tip is substantially closer to the palm than the finger center is
-                if ((tipToPalm - intToPalm) < curledMargin):
-                    status = 'curled'
-                if ((tipToPalm - shortLength) < downMargin):
-                    status = 'down'
-                if ((angles[a] < straightOutMargin) and (fingerHandAngle > 70)):
-
-                #if the finger to palm angle is small and the finger to hand direction is large, then the finger is probably pointing straight out.
-                    status = 'straightOut'
-        
-        print "%s is %s\n=========\n" % (a,status)
-
 
 
 def getDistance(vector1, vector2):
@@ -340,20 +439,26 @@ def getDistance(vector1, vector2):
     result = math.sqrt( ((x1 - x2)**2)+((y1 - y2)**2) + ((z1 - z2)**2) )
     #print "POINT 1: %d %d %d POINT 2:  %d %d %d DISTANCE: %d" % (x1, y1, z1, x2, y2, z2, result)
     return result
-#IF
-class _Getch:
-    """Gets a single character from standard input.  Does not echo to the
-screen."""
+
+class _Getch: #So, for windows and Unix, this has to be imported differently
+    """Gets a single character from standard input.  Does not echo to the screen."""
     def __init__(self):
         try:
-            self.impl = _GetchWindows()
-        except ImportError:
+            self.impl = _GetchWindows() #this checks if it's a windows machine
+        except ImportError:             #then checks if its unix
             self.impl = _GetchUnix()
+    def __call__(self): return self.impl() 
 
-    def __call__(self): return self.impl()
+class echo:
+    def __init__(self):
+        try:
+            self = _echoWindows();
+        except ImportError:
+            self = os.system("stty echo")
+    def __call__(self): return self
 
-
-class _GetchUnix:
+#IF
+class _GetchUnix: #this is for Unix Computers
     def __init__(self):
         import tty, sys
 
@@ -368,20 +473,30 @@ class _GetchUnix:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return ch
 
+#IF
+class _echoWindows:#this is for windows
+    def __init__(self):
+        import msvcrt
 
-class _GetchWindows:
+    def __call__(self):
+        import msvcrt
+        return msvcrt.getwche()
+
+
+class _GetchWindows:#this is for windows
     def __init__(self):
         import msvcrt
 
     def __call__(self):
         import msvcrt
         return msvcrt.getch()
+
     
 getch = _Getch()
 
 button_delay = 0.2
 
-#IF
+
 def printFrameInfo(frame):
     frame = frame
     
@@ -410,51 +525,6 @@ def printFrameInfo(frame):
 
 
 
-
-
-
-def getSign1(coords, fingers):
-    #signs = dict.fromkeys(["isA", "isF", "isW", "isY", "isD"], False)
-    isExtended = []
-    if not (fingers):
-        print "No hand detected."
-        return
-    #dFingers = dict(fingers)
-    palmOpen = True
-    isA = True
-    statusExtended = False
-    for a, f in fingers:
-        statusExtended = False
-        if not (f.is_extended):
-            palmOpen = False
-        if (f.is_extended):
-            isA = False
-            statusExtended = True
-        isExtended.append((a, statusExtended))
-    if (palmOpen and isExtended):
-        print "Your palm is open... High five!"
-        return
-    if (isA):
-        print "You signed an A"
-        return
-    isExtended = dict(isExtended) #make a dictionary from bools
-    if (isExtended['T'] and not isExtended['I'] and not isExtended['M'] and not isExtended['R'] and  isExtended['P']):
-        print "You signed a Y"
-        return
-    if (not isExtended['T'] and isExtended['I'] and isExtended['M'] and isExtended['R'] and not isExtended['P']):
-        print "You signed a W"
-        return
-    if (not isExtended['T'] and not isExtended['I'] and isExtended['M'] and isExtended['R'] and  isExtended['P']):
-        print "You signed an F"
-        return
-    if (not isExtended['T'] and  isExtended['I'] and not isExtended['M'] and not isExtended['R'] and not isExtended['P']):
-        print "You signed a D"
-        return
-    if (not isExtended['T'] and not isExtended['I'] and not isExtended['M'] and not isExtended['R'] and  isExtended['P']):
-        print "You signed an I"
-        return
-    print "You signed something else."
-#if dFingers['T'].is_extended #Thumb is Extended
 
 
 
@@ -528,19 +598,16 @@ def getCoordList(frame):
 
 
 # def printFrameInfo(Frame):
- #IF
-def getFrameRate(frame): #IF: this is the function to spit out the frame rate
-            fps = frame.current_frames_per_second
-            ts = time.time()
-            timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H-%M-%S')
-            print "At time " timeStamp " frame rate is " fps #IF
+
+
 class SampleListener(Leap.Listener):
     finger_names = ['T', 'I', 'M', 'R', 'P']
     bone_names = ['Metacarpal', 'Proximal', 'Intermediate', 'Distal  ']
     state_names = ['STATE_INVALID', 'STATE_START', 'STATE_UPDATE', 'STATE_END']
     first = False
     firstFrameId = 0
-    mostRecentFrameId = 0
+    mostRecentFrame = 0
+    initialTime = 0 #timestamp of first frame in ms
 
     frames = []
         
@@ -567,25 +634,19 @@ class SampleListener(Leap.Listener):
         print "Disconnected"
     
     def on_exit(self, controller):
-        #print("First  frame: " + str(self.firstFrameId) + "\n")
-        #self.printFrameInfo(self.firstFrameId)
-        #print("Most recent frame: " + str(self.mostRecentFrameId))
-        #self.printFrameInfo(self.mostRecentFrameId)
         print "EXIT"
     
     def on_frame(self, controller):
         
         # Get the most recent frame and report some basic information
         frame = controller.frame()
-        
-        #if this is the first frame in this recording session, save this
+        self.frames.append(frame)
         if (self.first):
             print("RECORDING... Hit space to get sign, 2 to print data, 3 to print finger length/coordinates, f to print data to file, and p to pause.")
+            initialTime = frame.timestamp
             self.first = False
-            self.firstFrameId = frame
         else:
-            self.mostRecentFrameId = frame
-            self.frames.append(frame)
+            self.mostRecentFrame = frame
             if (len(self.frames) > maxFrames):
                 del self.frames[0] #delete the oldest
             #print("Most recent frame: " + str(self.mostRecentFrameId))
@@ -630,7 +691,7 @@ def framesEqual(frame1, frame2):
         group2 = dict(getFingers(frame2)) 
 
         if(len(group1) != len(group2)): #if one frame has more fingers than the other frame
-            print f.stabilized_tip_position
+            #print f.stabilized_tip_position
             return False
 
         for a,f in group1:
@@ -682,6 +743,33 @@ def isSteady(listener):
     if (framesEqual(listener.frames[-1], listener.frames[-2]) and framesEqual(listener.frames[-2], listener.frames[-3])):
         return True
     return False
+
+
+
+def getFPS(frames, var, printRequested):
+    #initialize some things
+    timestamp_a = frames[0].timestamp
+    frameLoop = 1
+    avgTimeDifference = 0
+
+    #loop through frames specified and print out the time difference between each pair
+    while (frameLoop <= int(var)-1): 
+        timestamp_b = frames[frameLoop].timestamp
+        timeDifference = (timestamp_b - timestamp_a)
+        if(printRequested):
+            print "frame %d to %d: %d microseconds" % (frameLoop, frameLoop+1, timeDifference)
+        timestamp_a = timestamp_b
+        frameLoop += 1
+        avgTimeDifference += timeDifference
+    avgTimeDifference /= (int(var)-1)
+    if(printRequested):
+        print "average time difference between frames in microseconds :", avgTimeDifference
+    # the average frames per second is 1000000 microseconds(the number of micros in a single second)
+    # divided by the average time it takes to get a new frame
+    avgFPS = 1000000 / avgTimeDifference 
+    if(printRequested):
+        print "average frames per second: ", avgFPS
+    return avgFPS
 #######################################################
 
 def main():
@@ -693,10 +781,10 @@ def main():
     listener = SampleListener()
     controller = Leap.Controller()
 
-    frames = []         # list, store recent frames
-    frameCounter = 0    # current number of frames stored
+    frames = listener.frames        # list, store recent frames
 
 
+    currentFPS = 0
 
     myCoords = []
     fingerStatuses = []
@@ -705,7 +793,6 @@ def main():
     ts = time.time()
     st = datetime.datetime.fromtimestamp(ts).strftime('%H-%M-%S')
     
-    # Have the sample listener receive events from the controller
     
     
     # ========================================================#
@@ -722,6 +809,9 @@ def main():
             # q     -> quits program
             # r     -> resume recording 
             # p     -> pause recording
+            # t     -> print timestamps
+
+            
 
             if ((ch == "r" or ch == "R") and not recording):   #RESUME RECORDING
                 print("Hit any key to resume recording. Hit p to pause")
@@ -733,50 +823,87 @@ def main():
                 controller.remove_listener(listener)
                 recording = False
 
-            #--------------------
-            # Get next frame, store in array at index frameCounter #
-            frames.append(controller.frame())
+            mostRecentFrame = listener.mostRecentFrame
+            frameCount = len(frames)
 
-            if (not len(frames) >= maxFrames): ##if we already have 10 frames, delete the oldest   
-                frameCounter += 1
-            else:      
-                del frames[0]
+            if (ch == "t"):
+                print "enter # of frames"
+                var = raw_input("enter # of frames 1 - %d or hit enter for all\n" % frameCount)
+                if (not var.isdigit()):
+                    var = frameCount
 
-            mostRecentFrame = frames[frameCounter-1]
-
-            
-
-
+                currentFPS = getFPS(frames, int(var), True)
 
             #---------------
             # OTHER OPTIONS:
+            # 1         -> prints FPS
             # 2         -> prints finger lengths, statuses, and distances from palm
             # 3         -> prints finger coordinates and length
             # 4         -> prints finger angles between each other and palm
-            # 5         ->print out frame rate
             # spacebar  -> manually sends frame, checks for a sign
 
+            if (ch == "1"):
+                currentFPS =  getFPS(frames, frameCount, False)
+                print "CURRENT FPS: ", currentFPS
             if (ch == "2" and recording): #PRINT FINGER STATUSES
                 
                 myFingerList = getFingers(mostRecentFrame)
-                printFingerStatuses(myFingerList, mostRecentFrame.hands.frontmost);
-            if (ch == "3" and recording): #PRINT FINGER COORDINATES AND LENGTH 
+                getFingerStatuses(myFingerList, mostRecentFrame.hands.frontmost, True);
+            if (ch == "3" and recording): #PRINT FINGER DISTANCES AND LENGTH 
                 myCoords = getCoordList(mostRecentFrame)
+                palmCenter = mostRecentFrame.hands.frontmost.palm_position
                 myFingerList = getFingers(mostRecentFrame)
                 if myFingerList:
                     for a, y in myFingerList:
+                        print "%s full length: %f" % (a, y.length + y.bone(0).length)
                         print "%s length: %f" % (a, y.length)
-                if myCoords:
-                    for a, y in myCoords:
-                        print "%s: (x: %f, y: %f, z: %f)" % (a, y.x, y.y, y.z)
+                        print "%s  %f tip distance to palm" % (a, (y.stabilized_tip_position.distance_to(palmCenter) - y.length))
+                        print "%s  %f tip distance to knucks" % (a, (y.stabilized_tip_position.distance_to(y.bone(0).next_joint))- y.length)
+                        print "%s  %f knucks distance to palm" % (a, (y.bone(0).next_joint.distance_to(palmCenter)))
+                        print "%s  %f middle joint distance to palm" % (a, abs(y.bone(1).center.distance_to(palmCenter)))
+
             if (ch == "4" and recording): #PRINT FINGER ANGLES
                 print "FINDING ANGLES..."
                 myFingerList = getFingers(mostRecentFrame)
                 getFingerAngles(myFingerList, mostRecentFrame.hands.frontmost, True);
+            
+            if (ch == "5" and recording): #test function
+                myFingerList = getFingers(mostRecentFrame)
+                palmCenter = mostRecentFrame.hands.frontmost.palm_position
+                if myFingerList:
+                    for a, y in myFingerList:
+                        print "%s length: %f" % (a, y.length)
+                        print "%s  %f tip distance to palm" % (a, (y.stabilized_tip_position.distance_to(palmCenter) - y.length))
+                        print "%s  %f tip distance to knucks" % (a, (y.stabilized_tip_position.distance_to(y.bone(0).next_joint))- y.length)
+                        print "%s  %f knucks distance to palm" % (a, (y.bone(0).next_joint.distance_to(palmCenter)))
+                        print "%s  %f middle joint distance to palm" % (a, abs(y.bone(1).center.distance_to(palmCenter)))
 
-            if(char == "5"  and recording): #IF: Print Frame Rate 
-                getFrameRate(frame)
 
+
+            if (ch == "m" and recording): #print hand motion information
+                myFingerList = getFingers(mostRecentFrame)
+                myHand = mostRecentFrame.hands.frontmost
+                start_frame = frames[frameCount-int(getFPS(frames, frameCount, False) *0.5)] #start from the beginning of the last half second
+                print ("--------------\nTranslation Vector:")
+                print (myHand.translation(start_frame))
+
+                if (myHand.translation(start_frame).y > 50):
+                    print "\n==================\n     UP!!   \n=================="
+
+                print ("Probability: %f") % myHand.translation_probability(start_frame)
+                print ("Rotation Matrix:")
+                print (myHand.rotation_matrix(start_frame))
+                print ("Probability: %f") % myHand.rotation_probability(start_frame)
+                print ("Rotational Angle:")
+                print (myHand.rotation_angle(start_frame))
+
+
+                if (myHand.rotation_angle(start_frame) > 2):
+                    print "==================\n      FLIPPED!    \n==================="
+
+                print ("Around Rotational Axis:")
+                print (myHand.rotation_axis(start_frame))
+              
             #~ GET SIGN ~#
             if (ch == " " and  recording): #PRINT CURRENT SIGN
                 if (isSteady(listener)):
@@ -796,6 +923,8 @@ def main():
 
             if(recording):
                 controller.add_listener(listener)
+
+
                 
 
 
@@ -805,14 +934,16 @@ def main():
 
     #                                                         #
     # ========================================================#
-#IF
-    except KeyboardInterrupt: 
-        msvcrt.getwche()#stty
+
+    except KeyboardInterrupt:     
+        key = echo()
+    # os.system("stty echo")
         pass
     finally:
-        msvcrt.getwche() #stty
+        key = echo()
+       # os.system("stty echo")
         controller.remove_listener(listener) #Remove the sample listener when done
-#IF
+
 
 
 if __name__ == "__main__":
